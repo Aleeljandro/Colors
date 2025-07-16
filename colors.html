@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Colors</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+    };
+  </script>
+  <style>
+    .btn {
+      @apply px-4 py-2 rounded text-white transition;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: linear-gradient(270deg, #60a5fa73, #f472b55b, #d393346c);
+      background-size: 600% 600%;
+      z-index: -1;
+      animation: animatedBackground 20s ease infinite;
+    }
+    @keyframes animatedBackground {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+  </style>
+</head>
+<body class="bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors duration-300 font-sans">
+  <div class="min-h-screen flex flex-col items-center justify-center px-4 py-6 space-y-6 max-w-screen-lg mx-auto">
+    <!-- Header -->
+    <div class="w-full flex flex-wrap justify-between items-center gap-4 text-center md:text-left">
+      <h1 class="text-2xl font-bold">Explorador de Paletas</h1>
+      <div class="flex flex-wrap gap-2 justify-center">
+        <button id="toggleDark" class="btn bg-gray-700 hover:bg-gray-800">☀️/🌙</button>
+        <button id="savePalette" class="btn bg-green-600 hover:bg-green-700">Favoritos</button>
+        <button id="sharePalette" class="btn bg-purple-600 hover:bg-purple-700">Compartir</button>
+        <button id="uploadImage" class="btn bg-indigo-600 hover:bg-indigo-700">Imagen</button>
+        <button id="pickColor" class="btn bg-pink-600 hover:bg-pink-700">Eyedropper</button>
+        <button id="exportCSS" class="btn bg-teal-600 hover:bg-teal-700">Exportar CSS</button>
+        <button id="exportPNG" class="btn bg-yellow-600 hover:bg-yellow-700">Exportar PNG</button>
+        <input type="file" id="imageInput" accept="image/*" class="hidden" />
+      </div>
+    </div>
+
+    <!-- Paleta -->
+    <div id="palette" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 w-full"></div>
+    <button id="generate" class="btn bg-blue-600 hover:bg-blue-700">Generar paleta</button>
+    <div id="copied" class="text-green-400 text-sm hidden">¡Color copiado!</div>
+
+    <!-- Canvas Imagen -->
+    <canvas id="canvas" class="hidden mt-4 border shadow-md w-full max-w-md h-auto"></canvas>
+
+    <!-- Historial -->
+    <div class="w-full mt-10">
+      <div class="flex justify-between items-center mb-2">
+        <h2 class="text-xl font-semibold">Favoritos</h2>
+        <button id="clearHistory" class="btn text-sm bg-red-600 hover:bg-red-700">Borrar favoritos</button>
+      </div>
+      <div id="history" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    </div>
+  </div>
+
+  <script>
+    let currentColors = [];
+    const paletteContainer = document.getElementById('palette');
+    const generateBtn = document.getElementById('generate');
+    const toggleDark = document.getElementById('toggleDark');
+    const copiedMsg = document.getElementById('copied');
+    const savePaletteBtn = document.getElementById('savePalette');
+    const sharePaletteBtn = document.getElementById('sharePalette');
+    const uploadImage = document.getElementById('uploadImage');
+    const imageInput = document.getElementById('imageInput');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const historyContainer = document.getElementById('history');
+    const clearHistoryBtn = document.getElementById('clearHistory');
+    const pickColorBtn = document.getElementById('pickColor');
+    const exportCSS = document.getElementById('exportCSS');
+    const exportPNG = document.getElementById('exportPNG');
+
+    // Convierte HSL a HEX
+    function hslToHex(h, s, l) {
+      l /= 100;
+      const a = s * Math.min(l, 1 - l) / 100;
+      const f = n => {
+        const k = (n + h / 30) % 12;
+        const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+        return Math.round(255 * color).toString(16).padStart(2, '0');
+      };
+      return `#${f(0)}${f(8)}${f(4)}`.toUpperCase();
+    }
+
+    // Genera colores similares en HSL
+    function generateSimilarColors(count = 5) {
+      const baseHue = Math.floor(Math.random() * 360);
+      const baseSaturation = 70 + Math.random() * 20; // 70-90%
+      const baseLightness = 40 + Math.random() * 20;  // 40-60%
+      const colors = [];
+      for (let i = 0; i < count; i++) {
+        const hue = (baseHue + (i - Math.floor(count / 2)) * 15 + 360) % 360;
+        const saturation = Math.min(100, Math.max(50, baseSaturation + (Math.random() * 20 - 10)));
+        const lightness = Math.min(70, Math.max(30, baseLightness + (Math.random() * 20 - 10)));
+        colors.push(hslToHex(hue, saturation, lightness));
+      }
+      return colors;
+    }
+
+    // Renderiza la paleta en pantalla
+    function renderPalette() {
+      paletteContainer.innerHTML = '';
+      currentColors.forEach((hex, index) => {
+        const colorDiv = document.createElement('div');
+        colorDiv.className = 'flex flex-col items-center p-4 rounded-lg cursor-pointer transition border dark:border-gray-700 shadow group relative';
+        colorDiv.style.backgroundColor = hex;
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = hex;
+        input.className = 'text-sm font-mono bg-white/70 dark:bg-black/30 px-2 py-1 rounded mt-2 w-24 text-center';
+        input.addEventListener('click', e => e.stopPropagation());
+        input.addEventListener('change', () => {
+          if (/^#[0-9A-Fa-f]{6}$/.test(input.value)) {
+            currentColors[index] = input.value.toUpperCase();
+            renderPalette();
+          } else {
+            input.value = hex;
+          }
+        });
+
+        colorDiv.addEventListener('click', () => {
+          navigator.clipboard.writeText(hex);
+          copiedMsg.classList.remove('hidden');
+          setTimeout(() => copiedMsg.classList.add('hidden'), 1000);
+        });
+
+        colorDiv.appendChild(input);
+        paletteContainer.appendChild(colorDiv);
+      });
+    }
+
+    // Genera paleta de colores similares
+    function generatePalette() {
+      currentColors = generateSimilarColors(5);
+      renderPalette();
+    }
+
+    // Guarda la paleta actual en localStorage
+    function savePalette() {
+      const saved = JSON.parse(localStorage.getItem('palettes') || '[]');
+      saved.push(currentColors);
+      localStorage.setItem('palettes', JSON.stringify(saved));
+      loadSavedPalettes();
+    }
+
+    // Carga paletas guardadas en el historial
+    function loadSavedPalettes() {
+      const saved = JSON.parse(localStorage.getItem('palettes') || '[]');
+      historyContainer.innerHTML = '';
+      saved.slice().reverse().forEach((palette, i) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'relative border rounded-lg overflow-hidden shadow group cursor-pointer';
+        const trueIndex = saved.length - 1 - i;
+
+        const grid = document.createElement('div');
+        grid.className = 'grid grid-cols-5 h-12';
+        grid.onclick = () => {
+          currentColors = palette;
+          renderPalette();
+        };
+
+        palette.forEach(hex => {
+          const div = document.createElement('div');
+          div.style.backgroundColor = hex;
+          grid.appendChild(div);
+        });
+
+        const del = document.createElement('button');
+        del.textContent = '🗑️';
+        del.className = 'absolute top-1 right-1 bg-white/70 dark:bg-black/50 px-2 py-1 text-xs rounded hidden group-hover:block';
+        del.onclick = (e) => {
+          e.stopPropagation();
+          saved.splice(trueIndex, 1);
+          localStorage.setItem('palettes', JSON.stringify(saved));
+          loadSavedPalettes();
+        };
+
+        wrapper.appendChild(grid);
+        wrapper.appendChild(del);
+        historyContainer.appendChild(wrapper);
+      });
+    }
+
+    // Selección de color con EyeDropper API
+    async function pickScreenColor() {
+      if ('EyeDropper' in window) {
+        const eyeDropper = new EyeDropper();
+        try {
+          const result = await eyeDropper.open();
+          currentColors[0] = result.sRGBHex.toUpperCase();
+          renderPalette();
+        } catch (err) {
+          alert('Eyedropper cancelado o no soportado.');
+        }
+      } else {
+        alert('Tu navegador no soporta EyeDropper API.');
+      }
+    }
+
+    // Exporta paleta a archivo CSS
+    function downloadCSS() {
+      const content = currentColors.map((c, i) => `--color-${i + 1}: ${c};`).join('\n');
+      const blob = new Blob([`:root {\n${content}\n}`], { type: 'text/css' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'paleta.css';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Exporta paleta como imagen PNG
+    function exportPalettePNG() {
+      const size = 100;
+      const width = size * currentColors.length;
+      const height = size;
+
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = width;
+      exportCanvas.height = height;
+      const exportCtx = exportCanvas.getContext('2d');
+
+      currentColors.forEach((color, i) => {
+        exportCtx.fillStyle = color;
+        exportCtx.fillRect(i * size, 0, size, height);
+      });
+
+      exportCanvas.toBlob(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'paleta.png';
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+    }
+
+    // Maneja carga de imagen y extrae colores dominantes (simplificado)
+    uploadImage.addEventListener('click', () => imageInput.click());
+    imageInput.addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const img = new Image();
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        img.src = evt.target.result;
+        img.onload = () => {
+          canvas.width = img.width;
+          canvas.height = img.height;
+          canvas.classList.remove('hidden');
+          ctx.drawImage(img, 0, 0);
+          extractColorsFromImage();
+        };
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // Extrae colores dominantes de la imagen (promedio simplificado)
+    function extractColorsFromImage() {
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+      const colorCounts = {};
+      const step = 10; // muestreo cada 10px para mejor performance
+
+      for (let i = 0; i < data.length; i += 4 * step) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const hex = rgbToHex(r, g, b);
+        colorCounts[hex] = (colorCounts[hex] || 0) + 1;
+      }
+
+      const sortedColors = Object.entries(colorCounts).sort((a, b) => b[1] - a[1]);
+      currentColors = sortedColors.slice(0, 5).map(c => c[0]);
+      renderPalette();
+    }
+
+    function rgbToHex(r, g, b) {
+      return "#" + [r, g, b].map(x => x.toString(16).padStart(2, "0")).join("").toUpperCase();
+    }
+
+    // Limpia historial
+    clearHistoryBtn.onclick = () => {
+      if (confirm('¿Seguro que quieres borrar el historial?')) {
+        localStorage.removeItem('palettes');
+        loadSavedPalettes();
+      }
+    };
+
+    // Event listeners
+    generateBtn.addEventListener('click', generatePalette);
+    toggleDark.addEventListener('click', () => {
+      document.documentElement.classList.toggle('dark');
+    });
+    savePaletteBtn.addEventListener('click', savePalette);
+    pickColorBtn.addEventListener('click', pickScreenColor);
+    exportCSS.addEventListener('click', downloadCSS);
+    exportPNG.addEventListener('click', exportPalettePNG);
+
+    // Al cargar la página
+    loadSavedPalettes();
+    generatePalette();
+  </script>
+</body>
+</html>
